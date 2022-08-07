@@ -13,7 +13,8 @@ module Watcher : sig
      directly if there is no parent. This is an optimisation that allows us to
      reduce the number of watched paths: typically, the number of directories is
      a lot smaller than the number of files. *)
-  val watch : try_to_watch_via_parent:bool -> Path.t -> unit Memo.t
+  val watch :
+    try_to_watch_via_parent:bool -> Path.Outside_build_dir.t -> unit Memo.t
 
   (* Invalidate a path after receiving an event from the file watcher. *)
   val invalidate : Path.t -> Memo.Invalidation.t
@@ -124,9 +125,7 @@ end = struct
         Memo.return ())
 
   let watch ~try_to_watch_via_parent path =
-    if Path.is_in_build_dir path then
-      Code_error.raise "Fs_memo.Watcher.watch called on a build path"
-        [ ("path", Path.to_dyn path) ];
+    let path = Path.outside_build_dir path in
     match try_to_watch_via_parent with
     | false -> Memo.exec memo_for_watching_directly path
     | true -> Memo.exec memo_for_watching_via_parent path
@@ -207,7 +206,9 @@ end
    and re-traversed/re-watched again. *)
 let path_stat path =
   let* () = Watcher.watch ~try_to_watch_via_parent:true path in
-  match Fs_cache.read Fs_cache.Untracked.path_stat path with
+  match
+    Fs_cache.read Fs_cache.Untracked.path_stat (Path.outside_build_dir path)
+  with
   | Ok { st_dev = _; st_ino = _; st_kind } as result when st_kind = S_DIR ->
     (* If [path] is a directory, we conservatively watch it directly too,
        because its stats may change in a way that doesn't trigger an event in
@@ -270,15 +271,17 @@ let dir_exists path =
    of [file_digest] seems error-prone. We may need to rethink this decision. *)
 let file_digest ?(force_update = false) path =
   if force_update then (
+    let path = Path.outside_build_dir path in
     Cached_digest.Untracked.invalidate_cached_timestamp path;
     Fs_cache.evict Fs_cache.Untracked.file_digest path);
   let+ () = Watcher.watch ~try_to_watch_via_parent:true path in
-  Fs_cache.read Fs_cache.Untracked.file_digest path
+  Fs_cache.read Fs_cache.Untracked.file_digest (Path.outside_build_dir path)
 
 let dir_contents ?(force_update = false) path =
-  if force_update then Fs_cache.evict Fs_cache.Untracked.dir_contents path;
+  if force_update then
+    Fs_cache.evict Fs_cache.Untracked.dir_contents (Path.outside_build_dir path);
   let+ () = Watcher.watch ~try_to_watch_via_parent:false path in
-  Fs_cache.read Fs_cache.Untracked.dir_contents path
+  Fs_cache.read Fs_cache.Untracked.dir_contents (Path.outside_build_dir path)
 
 (* CR-someday amokhov: For now, we do not cache the result of this operation
    because the result's type depends on [f]. There are only two call sites of
@@ -290,17 +293,17 @@ let tracking_file_digest path =
      be recorded in the [Fs_cache.Untracked.file_digest], so the build will be
      restarted if the digest changes. *)
   let (_ : Cached_digest.Digest_result.t) =
-    Fs_cache.read Fs_cache.Untracked.file_digest path
+    Fs_cache.read Fs_cache.Untracked.file_digest (Path.outside_build_dir path)
   in
   ()
 
 let with_lexbuf_from_file path ~f =
   let+ () = tracking_file_digest path in
-  Io.Untracked.with_lexbuf_from_file path ~f
+  Io.Untracked.with_lexbuf_from_file (Path.outside_build_dir path) ~f
 
 let file_contents path =
   let+ () = tracking_file_digest path in
-  Io.read_file path
+  Io.read_file (Path.outside_build_dir path)
 
 (* When a file or directory is created or deleted, we need to also invalidate
    the parent directory, so that the [dir_contents] queries are re-executed. *)

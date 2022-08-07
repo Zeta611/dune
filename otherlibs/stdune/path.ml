@@ -904,6 +904,22 @@ let as_in_source_tree_exn t =
       "[as_in_source_tree_exn] called on something not in source tree"
       [ ("t", to_dyn t) ]
 
+let as_outside_build_dir_exn : t -> Outside_build_dir.t = function
+  | In_source_tree s -> In_source_dir s
+  | External s -> External s
+  | In_build_dir path ->
+    Code_error.raise "as_outside_build_dir_exn" [ ("path", Build.to_dyn path) ]
+
+let destruct_build_dir :
+    t -> [ `Inside of Build.t | `Outside of Outside_build_dir.t ] = function
+  | In_source_tree p -> `Outside (In_source_dir p)
+  | External s -> `Outside (External s)
+  | In_build_dir s -> `Inside s
+
+let outside_build_dir : Outside_build_dir.t -> t = function
+  | In_source_dir d -> In_source_tree d
+  | External s -> External s
+
 let as_in_build_dir = function
   | In_build_dir b -> Some b
   | In_source_tree _ | External _ -> None
