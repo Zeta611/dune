@@ -429,18 +429,7 @@ end = struct
     in
     let action =
       match sandbox with
-      | None ->
-        (* CR-someday amokhov: It may be possible to support directory targets
-           without sandboxing. We just need to make sure we clean up all stale
-           directory targets before running the rule and then we can discover
-           all created files right in the build directory. *)
-        if not (Path.Build.Set.is_empty targets.dirs) then
-          User_error.raise ~loc
-            [ Pp.text "Rules with directory targets must be sandboxed." ]
-            ~hints:
-              [ Pp.text "Add (sandbox always) to the (deps ) field of the rule."
-              ];
-        action
+      | None -> action
       | Some sandbox -> Action.sandbox action sandbox
     in
     let action =
@@ -476,10 +465,7 @@ end = struct
           in
           let produced_targets =
             match sandbox with
-            | None ->
-              (* Directory targets are not allowed for non-sandboxed actions, so
-                 the call below should not raise. *)
-              Targets.Produced.of_validated_files_exn targets
+            | None -> Targets.Produced.produced_after_rule_executed ~loc targets
             | Some sandbox ->
               (* The stamp file for anonymous actions is always created outside
                  the sandbox, so we can't move it. *)
